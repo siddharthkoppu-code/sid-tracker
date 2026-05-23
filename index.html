@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Premium Expense Tracker with Pie Chart</title>
+    <title>Premium Expense Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -19,8 +18,6 @@
         }
         .animate-slide { animation: slideUp 0.3s ease-out forwards; }
         @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
-        /* Premium custom drop shadows */
         .premium-shadow {
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.02), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
         }
@@ -30,7 +27,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+        const { useState, useMemo, useEffect, useRef } = React;
 
         const CATEGORY_COLORS = {
           'Food & Dining': '#ef4444',     // Red
@@ -45,67 +42,120 @@
             <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>
         );
 
+        // --- Custom Canvas Pie Chart Component ---
+        function DynamicCanvasChart({ data, total }) {
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                
+                // Reset canvas for high-DPI displays
+                const size = 200;
+                canvas.width = size * 2;
+                canvas.height = size * 2;
+                canvas.style.width = `${size}px`;
+                canvas.style.height = `${size}px`;
+                ctx.scale(2, 2);
+
+                const centerX = size / 2;
+                const centerY = size / 2;
+                const radius = 80;
+
+                // Clear canvas
+                ctx.clearRect(0, 0, size, size);
+
+                if (data.length === 0 || total === 0) {
+                    // Render Empty State Gray Circle
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#f1f5f9';
+                    ctx.fill();
+                    ctx.lineWidth = 15;
+                    ctx.strokeStyle = '#e2e8f0';
+                    ctx.stroke();
+                    return;
+                }
+
+                let startAngle = -0.5 * Math.PI; // Start from 12 o'clock
+
+                data.forEach(slice => {
+                    const sliceAngle = (slice.value / total) * 2 * Math.PI;
+
+                    // Draw Pie Slice
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, centerY);
+                    ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+                    ctx.closePath();
+                    ctx.fillStyle = slice.color;
+                    ctx.fill();
+
+                    // Advance starting angle
+                    startAngle += sliceAngle;
+                });
+
+                // Draw White Center Mask for Donut Style
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius - 24, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                // Draw inner subtle border
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#f1f5f9';
+                ctx.stroke();
+
+            }, [data, total]);
+
+            return (
+                <div className="relative flex items-center justify-center">
+                    <canvas ref={canvasRef} className="z-10" />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">OUTFLOW</span>
+                        <span className="text-xl font-black text-slate-900">₹{total}</span>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
-            // --- Sample Data ---
             const [transactions, setTransactions] = useState([
-                { id: 1, title: 'Grocery Run', amount: 1200, category: 'Food & Dining', date: '2026-05-20' },
-                { id: 2, title: 'Monthly Rent', amount: 12000, category: 'Rent & Bills', date: '2026-05-01' },
-                { id: 3, title: 'Uber Ride', amount: 850, category: 'Transport', date: '2026-05-22' },
-                { id: 4, title: 'Movie Tickets', amount: 1500, category: 'Entertainment', date: '2026-05-23' },
-                { id: 5, title: 'Sneakers Buy', amount: 3200, category: 'Shopping', date: '2026-05-23' }
+                { id: 1, title: 'Weekly Grocery', amount: 1500, category: 'Food & Dining', date: '2026-05-20' },
+                { id: 2, title: 'House Maintenance', amount: 8000, category: 'Rent & Bills', date: '2026-05-01' },
+                { id: 3, title: 'Metro Ticket', amount: 250, category: 'Transport', date: '2026-05-22' },
+                { id: 4, title: 'Streaming Subscriptions', amount: 990, category: 'Entertainment', date: '2026-05-23' },
+                { id: 5, title: 'Premium Coffee Maker', amount: 4800, category: 'Shopping', date: '2026-05-24' }
             ]);
 
-            // --- Form Inputs ---
             const [title, setTitle] = useState('');
             const [amount, setAmount] = useState('');
             const [category, setCategory] = useState('Food & Dining');
 
             useEffect(() => {
-                lucide.createIcons();
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
             }, [transactions]);
 
-            // --- Total Expenses calculation ---
             const totalExpense = useMemo(() => {
                 return transactions.reduce((sum, item) => sum + Number(item.amount), 0);
             }, [transactions]);
 
-            // --- Category Allocation Calculations ---
             const categoryBreakdown = useMemo(() => {
                 const breakdown = {};
                 transactions.forEach(t => {
                     breakdown[t.category] = (breakdown[t.category] || 0) + Number(t.amount);
                 });
 
-                let accumulatedPercent = 0;
-                return Object.entries(breakdown).map(([name, value]) => {
-                    const percentage = totalExpense > 0 ? (value / totalExpense) * 100 : 0;
-                    const startPercent = accumulatedPercent;
-                    accumulatedPercent += percentage;
-                    return {
-                        name,
-                        value,
-                        percentage: Math.round(percentage),
-                        startPercent,
-                        endPercent: accumulatedPercent,
-                        color: CATEGORY_COLORS[name] || '#64748b'
-                    };
-                });
+                return Object.entries(breakdown).map(([name, value]) => ({
+                    name,
+                    value,
+                    percentage: totalExpense > 0 ? Math.round((value / totalExpense) * 100) : 0,
+                    color: CATEGORY_COLORS[name] || '#64748b'
+                })).sort((a, b) => b.value - a.value);
             }, [transactions, totalExpense]);
 
-            // --- Conic Gradient string for dynamic CSS Pie Chart ---
-            const pieChartStyle = useMemo(() => {
-                if (categoryBreakdown.length === 0 || totalExpense === 0) {
-                    return { background: '#e2e8f0' }; // Empty state gray circle
-                }
-                const gradientSegments = categoryBreakdown.map(cat => 
-                    `${cat.color} ${cat.startPercent}% ${cat.endPercent}%`
-                );
-                return {
-                    background: `conic-gradient(${gradientSegments.join(', ')})`
-                };
-            }, [categoryBreakdown, totalExpense]);
-
-            // --- Actions ---
             const handleAddTransaction = (e) => {
                 e.preventDefault();
                 if (!title || !amount) return;
@@ -129,45 +179,28 @@
 
             return (
                 <div className="min-h-screen pb-16">
-                    {/* Header bar */}
-                    <header className="bg-white border-b border-slate-100 px-6 py-4 mb-8 sticky top-0 z-15">
+                    <header className="bg-white border-b border-slate-100 px-6 py-4 mb-8 sticky top-0 z-10">
                         <div className="max-w-4xl mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-3">
                                 <div className="bg-slate-900 p-2.5 rounded-xl text-white">
-                                    <Icon name="wallet" size={20} />
+                                    <Icon name="pie-chart" size={20} />
                                 </div>
                                 <h1 className="font-extrabold text-base tracking-wider uppercase">LEDGER CORE</h1>
                             </div>
-                            <span className="text-[10px] bg-slate-100 font-bold px-3 py-1.5 rounded-xl text-slate-500 uppercase tracking-widest">PRO EDITION</span>
+                            <span className="text-[10px] bg-slate-100 font-bold px-3 py-1.5 rounded-xl text-slate-500 uppercase tracking-widest">ACTIVE HARMONY</span>
                         </div>
                     </header>
 
                     <main className="max-w-4xl mx-auto px-6 grid grid-cols-1 md:grid-cols-12 gap-8">
-                        {/* LEFT COLUMN: Input Form & Interactive Pie Chart */}
                         <div className="md:col-span-5 space-y-6">
-                            
-                            {/* GUARANTEED PIE CHART COMPONENT (Donut style) */}
-                            <div className="bg-white border border-slate-100 rounded-[2rem] p-6 premium-shadow">
-                                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Expense Allocation Map</h2>
-                                
-                                <div className="relative flex items-center justify-center py-4">
-                                    {/* The Pie Chart Slice Circle */}
-                                    <div 
-                                        style={pieChartStyle}
-                                        className="w-44 h-44 rounded-full relative shadow-inner flex items-center justify-center transition-all duration-500"
-                                    >
-                                        {/* Donut Center Mask */}
-                                        <div className="w-32 h-32 rounded-full bg-white flex flex-col items-center justify-center shadow-md">
-                                            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest leading-none mb-1">TOTAL OUTFLOW</span>
-                                            <span className="text-2xl font-black text-slate-900 tracking-tight">₹{totalExpense}</span>
-                                        </div>
-                                    </div>
+                            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 premium-shadow">
+                                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Visual Allocation Map</h2>
+                                <div className="py-2">
+                                    <DynamicCanvasChart data={categoryBreakdown} total={totalExpense} />
                                 </div>
-
-                                {/* Dynamic Legend breakdowns with colorful pills */}
-                                <div className="mt-8 space-y-3">
+                                <div className="mt-6 space-y-3">
                                     {categoryBreakdown.length === 0 ? (
-                                        <p className="text-xs text-center text-slate-400 font-bold py-2 uppercase">No allocation logged</p>
+                                        <p className="text-xs text-center text-slate-400 font-bold py-2 uppercase">No Allocations Made</p>
                                     ) : (
                                         categoryBreakdown.map((item, index) => (
                                             <div key={index} className="flex items-center justify-between text-xs font-bold text-slate-600 animate-slide">
@@ -176,7 +209,7 @@
                                                     <span className="text-slate-800">{item.name}</span>
                                                 </div>
                                                 <div className="text-right">
-                                                    <span className="text-slate-900">₹{item.value}</span>
+                                                    <span className="text-slate-900 font-bold">₹{item.value}</span>
                                                     <span className="text-[10px] text-slate-400 font-medium ml-1.5">({item.percentage}%)</span>
                                                 </div>
                                             </div>
@@ -185,22 +218,20 @@
                                 </div>
                             </div>
 
-                            {/* Transaction Ingest Form */}
-                            <div className="bg-white border border-slate-100 rounded-[2rem] p-6 premium-shadow">
+                            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 premium-shadow">
                                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Add Transaction</h3>
                                 <form onSubmit={handleAddTransaction} className="space-y-4">
-                                    <input required type="text" placeholder="Description" className="w-full bg-slate-50 border border-transparent p-3.5 rounded-xl text-xs font-bold outline-none focus:border-slate-200 transition-colors" value={title} onChange={e => setTitle(e.target.value)}/>
-                                    <input required type="number" placeholder="Value (INR)" className="w-full bg-slate-50 border border-transparent p-3.5 rounded-xl text-xs font-bold outline-none focus:border-slate-200 transition-colors" value={amount} onChange={e => setAmount(e.target.value)}/>
-                                    <select className="w-full bg-slate-50 border border-transparent p-3.5 rounded-xl text-xs font-bold outline-none cursor-pointer" value={category} onChange={e => setCategory(e.target.value)}>
+                                    <input required type="text" placeholder="Description" className="w-full bg-slate-50 border border-transparent p-4 rounded-2xl text-xs font-bold outline-none focus:border-slate-200 transition-colors" value={title} onChange={e => setTitle(e.target.value)}/>
+                                    <input required type="number" placeholder="Value (INR)" className="w-full bg-slate-50 border border-transparent p-4 rounded-2xl text-xs font-bold outline-none focus:border-slate-200 transition-colors" value={amount} onChange={e => setAmount(e.target.value)}/>
+                                    <select className="w-full bg-slate-50 border border-transparent p-4 rounded-2xl text-xs font-bold outline-none cursor-pointer" value={category} onChange={e => setCategory(e.target.value)}>
                                         {Object.keys(CATEGORY_COLORS).map(cat => <option key={cat}>{cat}</option>)}
                                     </select>
-                                    <button type="submit" className="w-full bg-slate-900 text-white font-black text-xs py-4 rounded-xl hover:bg-slate-800 tracking-widest uppercase transition-all shadow-md">Add Transaction</button>
+                                    <button type="submit" className="w-full bg-indigo-600 text-white font-black text-xs py-4.5 rounded-2xl hover:bg-indigo-700 tracking-widest uppercase transition-all shadow-md">Execute Insertion</button>
                                 </form>
                             </div>
                         </div>
 
-                        {/* RIGHT COLUMN: Ledger Records list */}
-                        <div className="md:col-span-7 bg-white border border-slate-100 rounded-[2rem] p-6 premium-shadow flex flex-col h-fit">
+                        <div className="md:col-span-7 bg-white border border-slate-100 rounded-[2.5rem] p-6 premium-shadow flex flex-col h-fit">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Statements</h3>
                                 <span className="text-[10px] text-slate-400 font-bold">{transactions.length} Records</span>
@@ -242,5 +273,3 @@
     </script>
 </body>
 </html>
-
-```
