@@ -304,6 +304,259 @@
             e.target.reset(); toggleDebtModal();
         };
 
+        
+// Pie Chart Generator
+        function createPieChartImage(transactions) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 500;
+            canvas.height = 500;
+            const ctx = canvas.getContext('2d');
+            const categoryTotals = {};
+            transactions.forEach(t => {
+                if (t.category !== 'Salary') {
+                    categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+                }
+            });
+            const labels = Object.keys(categoryTotals);
+            const values = Object.values(categoryTotals);
+            if (!values.length) return null;
+            const total = values.reduce((a,b)=>a+b,0);
+            const colors = ['#4F46E5','#06B6D4','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#64748B'];
+            let startAngle = 0;
+            values.forEach((value,index)=>{
+                const slice=(value/total)*2*Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(250,250);
+                ctx.arc(250,250,180,startAngle,startAngle+slice);
+                ctx.closePath();
+                ctx.fillStyle=colors[index%colors.length];
+                ctx.fill();
+                startAngle+=slice;
+            });
+            ctx.font='16px Arial';
+            labels.forEach((label,index)=>{
+                ctx.fillStyle=colors[index%colors.length];
+                ctx.fillRect(20,20+index*30,20,20);
+                ctx.fillStyle='#000';
+                ctx.fillText(`${label}: ₹${categoryTotals[label].toLocaleString()}`,50,36+index*30);
+            });
+            return canvas.toDataURL('image/png');
+        }
+
+
+        // PDF Generation
+        document.getElementById('downloadPdfBtn').onclick = () => {
+            const { jsPDF } = window.jspdf;
+            const docPdf = new jsPDF();
+            const m = document.getElementById('monthSelector').value;
+            const filteredTx = allTransactions.filter(t => t.date.startsWith(m));
+            const totalRec = allDebts.reduce((a,b)=>a+b.amount,0);
+            const totalBal = filteredTx.reduce((a,b) => a + (b.category === 'Salary' ? b.amount : -b.amount), 0);
+
+            docPdf.setFontSize(22);
+            docPdf.text("WalletSync Financial Report", 14, 20);
+            docPdf.setFontSize(10);
+            docPdf.setTextColor(100);
+            docPdf.text(`Generated for: ${m}`, 14, 28);
+            docPdf.text(`Account: ${auth.currentUser.email || 'Guest'}`, 14, 33);
+
+            docPdf.setFillColor(245, 247, 250);
+            docPdf.rect(14, 40, 180, 25, 'F');
+            docPdf.setTextColor(0);
+            docPdf.setFontSize(12);
+            docPdf.text(`Monthly Balance: Rs. ${totalBal.toLocaleString()}`, 20, 50);
+            docPdf.text(`Total Debts Receivable: Rs. ${totalRec.toLocaleString()}`, 20, 57);
+
+            docPdf.setFontSize(14);
+            docPdf.text("Transaction History", 14, 80);
+            docPdf.autoTable({
+                startY: 85,
+                head: [['Date', 'Description', 'Category', 'Amount']],
+                body: filteredTx.map(t => [t.date, t.description, t.category, `Rs. ${t.amount}`]),
+                theme: 'striped',
+                headStyles: { fillColor: [79, 70, 229] }
+            });
+
+            const pieChartImage = createPieChartImage(filteredTx);
+            if (pieChartImage) {
+                docPdf.addPage();
+                docPdf.setFontSize(18);
+                docPdf.text("Expense Distribution by Category", 14, 20);
+                docPdf.addImage(pieChartImage, 'PNG', 15, 30, 180, 180);
+            }
+
+            docPdf.addPage();
+            docPdf.text("Active Debts", 14, 20);
+            docPdf.autoTable({
+                startY: 30,
+                head: [['Person Name', 'Topic', 'Amount']],
+                body: allDebts.map(g => [g.name, g.topic, `Rs. ${g.amount.toLocaleString()}`]),
+                theme: 'grid',
+                headStyles: { fillColor: [15, 23, 42] }
+            });
+
+            docPdf.save(`WalletSync_Report_${m}.pdf`);
+        };
+
+        document.getElementById('monthSelector').value;
+            const term = document.getElementById('searchInput').value.trim().toLowerCase();
+            const indicator = document.getElementById('searchIndicator');
+            
+            // Filter by month first
+            const monthFiltered = allTransactions.filter(t => t.date.startsWith(m));
+            
+            // If search term exists, rank and filter
+            let displayList = monthFiltered;
+            if (term) {
+                indicator.classList.remove('hidden');
+                displayList = monthFiltered
+                    .map(t => ({ ...t, _score: getMatchScore(t, term) }))
+                    .filter(t => t._score > 0)
+                    .sort((a, b) => b._score - a._score);
+            } else {
+                indicator.classList.add('hidden');
+            }
+
+            const bal = displayList.reduce((a,b) => a + (b.category === 'Salary' ? b.amount : -b.amount), 0);
+            document.getElementById('totalBalance').innerText = `₹${bal.toLocaleString()}`;
+            
+            document.getElementById('historyList').innerHTML = displayList.length > 0 ? displayList.map(t => `
+                <div class="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-slate-50 transition-all active:scale-[0.98]">
+                    <div class="flex-1 pr-4">
+                        <p class="font-bold text-sm text-slate-800 truncate">${t.description}</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                             <span class="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-bold uppercase">${t.category}</span>
+                             <span class="text-[10px] text-slate-400 font-bold">${t.date}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <p class="font-black ${t.category === 'Salary' ? 'text-emerald-500' : 'text-slate-800'} text-sm whitespace-nowrap">₹${t.amount.toLocaleString()}</p>
+                        <button onclick="deleteDocById('records', '${t.id}')" class="text-slate-200 hover:text-red-400 transition-colors"><i data-lucide="trash-2" size="14"></i></button>
+                    </div>
+                </div>`).join('') : `<div class="text-center py-10 text-slate-400 text-xs font-bold">No matches found for "${term}"</div>`;
+
+            // Debts Update
+            const grouped = {};
+            allDebts.forEach(d => {
+                const name = d.name.trim().toLowerCase();
+                if (!grouped[name]) grouped[name] = { originalName: d.name, total: 0, items: [] };
+                grouped[name].total += d.amount;
+                grouped[name].items.push(d);
+            });
+
+            document.getElementById('totalCollectible').innerText = `₹${allDebts.reduce((a,b)=>a+b.amount,0).toLocaleString()}`;
+            document.getElementById('debtList').innerHTML = Object.values(grouped).map(g => `
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+                    <div class="bg-slate-50 p-4 flex justify-between items-center border-b border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-xs">${g.originalName.charAt(0).toUpperCase()}</div>
+                            <span class="font-bold text-slate-800">${g.originalName}</span>
+                        </div>
+                        <span class="text-indigo-600 font-black">₹${g.total.toLocaleString()}</span>
+                    </div>
+                    <div class="p-2">
+                        ${g.items.map(item => `
+                            <div class="flex justify-between items-center p-3">
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-600">${item.topic}</p>
+                                    <p class="text-[9px] text-slate-400 font-bold">${item.date}</p>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs font-bold text-slate-400">₹${item.amount.toLocaleString()}</span>
+                                    <button onclick="deleteDocById('debts', '${item.id}')" class="text-slate-200 hover:text-indigo-500"><i data-lucide="check-circle" size="16"></i></button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+        }
+
+        // Listen for Search input
+        document.getElementById('searchInput').addEventListener('input', updateUI);
+
+        onAuthStateChanged(auth, u => {
+            if(u) {
+                currentUser = u;
+                document.getElementById('authScreen').classList.add('hidden');
+                document.getElementById('userEmail').innerText = u.email || "Guest User";
+                onSnapshot(query(collection(db, 'vault', u.uid, 'records'), orderBy('createdAt', 'desc')), s => { 
+                    allTransactions = s.docs.map(d => ({id: d.id, ...d.data()})); 
+                    updateUI(); 
+                });
+                onSnapshot(query(collection(db, 'vault', u.uid, 'debts'), orderBy('createdAt', 'desc')), s => { 
+                    allDebts = s.docs.map(d => ({id: d.id, ...d.data()})); 
+                    updateUI(); 
+                });
+            }
+        });
+
+        window.deleteDocById = async (col, id) => { 
+            if(confirm("Permanently delete this entry?")) {
+                await deleteDoc(doc(db, 'vault', currentUser.uid, col, id)); 
+            }
+        };
+
+        document.getElementById('txForm').onsubmit = async e => {
+            e.preventDefault();
+            await setDoc(doc(db, 'vault', currentUser.uid, 'records', Date.now().toString()), {
+                amount: parseFloat(e.target.amount.value), date: e.target.date.value,
+                category: e.target.category.value, description: e.target.desc.value, createdAt: new Date().toISOString()
+            });
+            e.target.reset(); toggleForm();
+        };
+
+        document.getElementById('debtForm').onsubmit = async e => {
+            e.preventDefault();
+            await setDoc(doc(db, 'vault', currentUser.uid, 'debts', "d"+Date.now()), {
+                name: e.target.debtName.value, amount: parseFloat(e.target.debtAmount.value), topic: e.target.debtTopic.value,
+                date: e.target.debtDate.value, createdAt: new Date().toISOString()
+            });
+            e.target.reset(); toggleDebtModal();
+        };
+
+        
+// Pie Chart Generator
+        function createPieChartImage(transactions) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 500;
+            canvas.height = 500;
+            const ctx = canvas.getContext('2d');
+            const categoryTotals = {};
+            transactions.forEach(t => {
+                if (t.category !== 'Salary') {
+                    categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+                }
+            });
+            const labels = Object.keys(categoryTotals);
+            const values = Object.values(categoryTotals);
+            if (!values.length) return null;
+            const total = values.reduce((a,b)=>a+b,0);
+            const colors = ['#4F46E5','#06B6D4','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#64748B'];
+            let startAngle = 0;
+            values.forEach((value,index)=>{
+                const slice=(value/total)*2*Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(250,250);
+                ctx.arc(250,250,180,startAngle,startAngle+slice);
+                ctx.closePath();
+                ctx.fillStyle=colors[index%colors.length];
+                ctx.fill();
+                startAngle+=slice;
+            });
+            ctx.font='16px Arial';
+            labels.forEach((label,index)=>{
+                ctx.fillStyle=colors[index%colors.length];
+                ctx.fillRect(20,20+index*30,20,20);
+                ctx.fillStyle='#000';
+                ctx.fillText(`${label}: ₹${categoryTotals[label].toLocaleString()}`,50,36+index*30);
+            });
+            return canvas.toDataURL('image/png');
+        }
+
+
         // PDF Generation
         document.getElementById('downloadPdfBtn').onclick = () => {
             const { jsPDF } = window.jspdf;
